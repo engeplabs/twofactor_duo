@@ -350,7 +350,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 		$config = $this->getConfig();
 		// if the flow was started with a specific redirect URL we need to add it to our URL where the Duo-challenge is
 		// completed (stored in "redirect_uri" config)
-		$redirectUri = $this->session->exists('redirect_url_after_success') ?
+		$verifyChallengeUrl = $this->session->exists('redirect_url_after_success') ?
 			$config['redirect_uri'] . '?redirect_url=' . urlencode($this->session->get('redirect_url_after_success')) :
 			$config['redirect_uri'];
 		// make sure that the redirect_url_after_success is deleted
@@ -358,7 +358,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 
 		$tmpl = new Template('twofactor_duo', 'complete');
 		$tmpl->assign('complete_token', $token);
-		$tmpl->assign('redirect_uri', $redirectUri);
+		$tmpl->assign('verify_challenge_url', $verifyChallengeUrl);
 		$tmpl->assign('complete_script', $completeScript);
 		return $tmpl;
 	}
