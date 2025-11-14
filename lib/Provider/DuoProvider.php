@@ -177,6 +177,13 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 	 * @return Template the template which should be shown
 	 */
 	public function getTemplate(IUser $user): Template {
+		// in case the login flow is used to authenticate a client app, we need to store the redirect URL inside the
+		// session to redirect back to it after successful duo flow.
+		$redirectUrlAfterSuccess = $this->request->getParam('redirect_url');
+		if ($redirectUrlAfterSuccess != null) {
+			$this->session->set('redirect_url_after_success', $redirectUrlAfterSuccess);
+		}
+
 		// Duo uses the error GET parameter to report back errors
 		// with error, error_description is also set
 		if ($this->request->getParam('error') != null) {
@@ -343,9 +350,17 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 		$this->session->set('complete_script', $completeScript);
 
 		$config = $this->getConfig();
+		// if the flow was started with a specific redirect URL we need to add it to our URL where the Duo-challenge is
+		// completed (stored in "redirect_uri" config)
+		$redirectUri = $this->session->exists('redirect_url_after_success') ?
+			$config['redirect_uri'] . '?redirect_url=' . urlencode($this->session->get('redirect_url_after_success')) :
+			$config['redirect_uri'];
+		// make sure that the redirect_url_after_success is deleted
+		$this->session->remove('redirect_url_after_success');
+
 		$tmpl = new Template('twofactor_duo', 'complete');
 		$tmpl->assign('complete_token', $token);
-		$tmpl->assign('redirect_uri', $config['redirect_uri']);
+		$tmpl->assign('redirect_uri', $redirectUri);
 		$tmpl->assign('complete_script', $completeScript);
 		return $tmpl;
 	}
@@ -356,15 +371,17 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 	 * The template contains the given error message as well as a button to restart
 	 * the 2FA process.
 	 *
-	 * Besides returning the template that show the error, this also cleans uo
+	 * Besides returning the template which shows the error, this also cleans up
 	 * any remaining state from the current login attempt.
 	 *
-	 * @param string $error_message the error message which will be displayed to the user
+	 * @param string $error_message the error message, which will be displayed to the user
 	 * @return Template the error template with its data
 	 */
 	private function showErrorPage(string $error_message): Template {
 		// always remove current state on error
 		$this->session->remove('state');
+		// since there could be a stored redirect_url_after_success, we need to remove it as well
+		$this->session->remove('redirect_url_after_success');
 
 		$config = $this->getConfig();
 		$tmpl = new Template('twofactor_duo', 'error');
