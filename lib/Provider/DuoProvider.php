@@ -189,7 +189,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 		if ($this->request->getParam('error') != null) {
 			$this->logger->warning('Possible error from Duo 2FA.',
 				[$this->request->getParam('error'), $this->request->getParam('error_description')]);
-			return $this->showErrorPage(
+			return $this->clearSessionAndShowErrorPage(
 				$this->request->getParam('error') . ': ' .
 				$this->request->getParam('error_description')
 			);
@@ -203,19 +203,17 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 			if (!$this->session->exists('state')) {
 				$this->logger->warning('User submitted state and duo_code but there was no state in session.',
 					[$this->request->getParam('state'), $this->request->getParam('duo_code')]);
-				return $this->showErrorPage(
+				return $this->clearSessionAndShowErrorPage(
 					'No active login process found. Please try again.');
 			}
-			// if we have a stored state, get it and immediately delete it afterward
-			// since now it's been consumed.
+			// we have a stored state -> get it and immediately delete it afterward since it's consumed now.
 			$storedState = $this->session->get('state');
 			$this->session->remove('state');
-			// if the stored state does not match the GET param state, show the
-			// error page
+			// if the stored state does not match the GET param state, show the error page
 			if ($storedState != $this->request->getParam('state')) {
 				$this->logger->warning('User submitted state and duo_code but state did not match state in session.',
 					[$this->request->getParam('state'), $this->request->getParam('duo_code')]);
-				return $this->showErrorPage('Duo state does not match saved state.');
+				return $this->clearSessionAndShowErrorPage('Duo state does not match saved state.');
 			}
 			// we have the correct state and the duo code - complete the login process
 			return $this->completeLoginProcess($user, $this->request->getParam('duo_code'));
@@ -289,7 +287,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 	private function startLoginProcess(IUser $user): Template {
 		// first we need to check if the Duo Client could be properly initialized
 		if ($this->duoClientInitException != null) {
-			return $this->showErrorPage('Error while initializing Duo Client.');
+			return $this->clearSessionAndShowErrorPage('Error while initializing Duo Client.');
 		}
 		// then we perform health check on the Duo Client
 		try {
@@ -298,7 +296,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 			$msg = 'Duo Client health check failed';
 			$this->logger->error($msg, [$e]);
 			// TODO add config to set if we want to fail open
-			return $this->showErrorPage($msg);
+			return $this->clearSessionAndShowErrorPage($msg);
 		}
 		// generate and store the state and then create the auth URL
 		$state = $this->duoClient->generateState();
@@ -308,7 +306,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 		} catch (DuoException $e) {
 			$msg = 'Duo auth URL could not be created.';
 			$this->logger->error($msg, [$e]);
-			return $this->showErrorPage($msg);
+			return $this->clearSessionAndShowErrorPage($msg);
 		}
 		// prepare redirect script for template
 		$redirectScript = 'window.location.href = \'' . $prompt_uri . '\';';
@@ -331,7 +329,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 	private function completeLoginProcess(IUser $user, string $duo_code): Template {
 		// first we need to check if the Duo Client could be properly initialized
 		if ($this->duoClientInitException != null) {
-			return $this->showErrorPage('Error while initializing Duo Client.');
+			return $this->clearSessionAndShowErrorPage('Error while initializing Duo Client.');
 		}
 		// if so, we check validate the duo_code
 		try {
@@ -341,10 +339,10 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 			// be a discrepancy with the system clock - show the error page
 			$msg = 'Error decoding Duo result. Confirm device clock is correct.';
 			$this->logger->error($msg, [$e]);
-			return $this->showErrorPage($msg);
+			return $this->clearSessionAndShowErrorPage($msg);
 		}
 		// prepare session for validation step
-		$token = bin2hex(openssl_random_pseudo_bytes(32));;
+		$token = bin2hex(openssl_random_pseudo_bytes(32));
 		$this->session->set('duo_challenge_complete_token', $token);
 		$completeScript = 'document.getElementById(\'complete-form\').submit();';
 		$this->session->set('complete_script', $completeScript);
@@ -377,7 +375,7 @@ class DuoProvider implements IProvider, IProvidesCustomCSP, IActivatableByAdmin,
 	 * @param string $error_message the error message, which will be displayed to the user
 	 * @return Template the error template with its data
 	 */
-	private function showErrorPage(string $error_message): Template {
+	private function clearSessionAndShowErrorPage(string $error_message): Template {
 		// always remove current state on error
 		$this->session->remove('state');
 		// since there could be a stored redirect_url_after_success, we need to remove it as well
